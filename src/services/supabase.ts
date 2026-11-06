@@ -10,7 +10,6 @@ export const isSupabaseConfigured = Boolean(
   !supabaseUrl.includes('your-project-ref')
 );
 
-// Inisialisasi client Supabase
 export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
       realtime: {
@@ -20,4 +19,3 @@ export const supabase = isSupabaseConfigured
       },
     })
   : null;
-

@@ -6,10 +6,9 @@
   font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
 }
 
-/* Custom modern scrollbar for kitchen displays */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -23,6 +22,14 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: #334155;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 @keyframes pulse-ring {
@@ -43,4 +50,3 @@
 .animate-pulse-urgent {
   animation: pulse-ring 2s infinite;
 }
-

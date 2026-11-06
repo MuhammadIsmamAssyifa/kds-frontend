@@ -20,10 +20,10 @@ import {
   History,
   AlertCircle,
   Maximize,
-  Minimize
+  Minimize,
+  UtensilsCrossed
 } from 'lucide-vue-next';
 
-// State Utama
 const orders = ref<Order[]>([]);
 const completedOrders = ref<Order[]>([]);
 const isLoading = ref<boolean>(true);
@@ -35,7 +35,6 @@ const realtimeConnected = ref<boolean>(false);
 const newOrderNotification = ref<string | null>(null);
 const isFullscreen = ref<boolean>(false);
 
-// Toggle Fullscreen Layar Monitor KDS
 function toggleFullscreen() {
   if (!document.fullscreenElement) {
     document.documentElement.requestFullscreen().then(() => {
@@ -58,14 +57,12 @@ function handleFullscreenChange() {
   isFullscreen.value = !!document.fullscreenElement;
 }
 
-// Timer jam digital & durasi tunggu
 const nowTime = ref<number>(Date.now());
 const digitalClock = ref<string>('');
 let timerInterval: any = null;
 let pollingInterval: any = null;
 let realtimeChannel: any = null;
 
-// Update jam digital
 function updateClock() {
   nowTime.value = Date.now();
   const d = new Date();
@@ -76,7 +73,6 @@ function updateClock() {
   });
 }
 
-// Ambil data dari Backend NestJS
 async function fetchOrders(showSpinner = true) {
   if (showSpinner) isRefreshing.value = true;
   try {
@@ -90,7 +86,6 @@ async function fetchOrders(showSpinner = true) {
   }
 }
 
-// Ambil riwayat order selesai
 async function fetchCompletedOrders() {
   try {
     const res = await kdsApi.getCompletedOrders();
@@ -100,9 +95,7 @@ async function fetchCompletedOrders() {
   }
 }
 
-// Handler update status memasak satu item
 async function handleUpdateStatus(payload: { itemId: string; status: KdsStatus }) {
-  // Optimistic update di UI
   for (const o of orders.value) {
     const item = o.order_items.find((i) => i.id === payload.itemId);
     if (item) {
@@ -118,12 +111,10 @@ async function handleUpdateStatus(payload: { itemId: string; status: KdsStatus }
     await kdsApi.updateItemStatus(payload.itemId, payload.status);
   } catch (err) {
     console.error('Gagal update status item:', err);
-    // Refresh ulang dari server jika gagal
     await fetchOrders(false);
   }
 }
 
-// Handler update massal status (Masak Semua / Selesai Semua)
 async function handleBulkStatus(payload: { orderId: string; status: KdsStatus }) {
   const targetOrder = orders.value.find((o) => o.id === payload.orderId);
   if (!targetOrder) return;
@@ -149,20 +140,18 @@ async function handleBulkStatus(payload: { orderId: string; status: KdsStatus })
   }
 }
 
-// Handler sajikan semua -> pindahkan ke riwayat & bersihkan antrean aktif
 async function handleServeOrder(orderId: string) {
   const idx = orders.value.findIndex((o) => o.id === orderId);
   if (idx === -1) return;
 
   const servedOrder = orders.value[idx];
-  // Optimistic remove dari antrean aktif
   orders.value.splice(idx, 1);
   servedOrder.is_served = true;
   servedOrder.served_at = new Date().toISOString();
   completedOrders.value.unshift(servedOrder);
 
   soundEffects.playDoneSound();
-  showFlashNotification(`🍽️ PESANAN "${servedOrder.customer_name}" TELAH DISAJIKAN & DIPINDAHKAN KE RIWAYAT`);
+  showFlashNotification(`🍽️ PESANAN "${servedOrder.customer_name}" TELAH DISAJIKAN`);
 
   try {
     await kdsApi.serveOrder(orderId);
@@ -172,7 +161,6 @@ async function handleServeOrder(orderId: string) {
   }
 }
 
-// Handler kembalikan dari riwayat ke antrean aktif (jika salah klik sajikan)
 async function handleUnserveOrder(orderId: string) {
   try {
     await kdsApi.unserveOrder(orderId);
@@ -184,23 +172,19 @@ async function handleUnserveOrder(orderId: string) {
   }
 }
 
-// Handler selesaikan semua item di dalam 1 kartu pesanan (backward compatibility)
 async function handleCompleteAll(orderId: string) {
   await handleBulkStatus({ orderId, status: 'done' });
 }
 
-// Toggle audio mute
 function toggleSound() {
   isSoundMuted.value = !isSoundMuted.value;
   soundEffects.setMuted(isSoundMuted.value);
 }
 
-// Tes suara notifikasi (juga mengaktifkan audio context browser)
 function testSound() {
   soundEffects.playNewOrderSound();
 }
 
-// Tampilkan banner notifikasi kilat
 function showFlashNotification(text: string) {
   newOrderNotification.value = text;
   setTimeout(() => {
@@ -208,14 +192,9 @@ function showFlashNotification(text: string) {
   }, 4500);
 }
 
-// Konfigurasi Supabase Realtime
 function setupSupabaseRealtime() {
   if (!isSupabaseConfigured || !supabase) {
-    console.warn(
-      'Supabase URL / Anon Key belum diatur di .env. Menggunakan mode polling (interval 10 detik).'
-    );
     realtimeConnected.value = false;
-    // Fallback polling
     pollingInterval = setInterval(() => {
       fetchOrders(false);
     }, 10000);
@@ -229,7 +208,6 @@ function setupSupabaseRealtime() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'orders' },
         (payload) => {
-          console.log('⚡ Realtime Orders Event:', payload);
           if (payload.eventType === 'INSERT') {
             soundEffects.playNewOrderSound();
             showFlashNotification(
@@ -243,7 +221,6 @@ function setupSupabaseRealtime() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'order_items' },
         (payload) => {
-          console.log('⚡ Realtime Order Items Event:', payload);
           if (payload.eventType === 'INSERT') {
             if (payload.new.is_addon) {
               soundEffects.playAddonAlertSound();
@@ -259,7 +236,6 @@ function setupSupabaseRealtime() {
       )
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
-          console.log('✅ Supabase Realtime connected successfully to KDS');
           realtimeConnected.value = true;
         } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
           realtimeConnected.value = false;
@@ -271,11 +247,9 @@ function setupSupabaseRealtime() {
   }
 }
 
-// Filter daftar pesanan aktif berdasarkan tab & pencarian
 const filteredOrders = computed(() => {
   let list = orders.value;
 
-  // Filter Tab
   if (activeTab.value === 'cooking') {
     list = list.filter((o) =>
       o.order_items.some((i) => i.kds_status === 'cooking' || i.kds_status === 'pending')
@@ -286,7 +260,6 @@ const filteredOrders = computed(() => {
     );
   }
 
-  // Filter Pencarian
   if (searchQuery.value.trim()) {
     const q = searchQuery.value.toLowerCase();
     list = list.filter(
@@ -300,7 +273,6 @@ const filteredOrders = computed(() => {
   return list;
 });
 
-// Hitung statistik pesanan
 const stats = computed(() => {
   const activeCount = orders.value.length;
   const cookingCount = orders.value.filter((o) =>
@@ -338,7 +310,6 @@ onUnmounted(() => {
 
 <template>
   <div class="min-h-screen bg-slate-950 flex flex-col text-slate-100">
-    <!-- NOTIFIKASI KILAT BANNER ATAS -->
     <transition
       enter-active-class="transform transition ease-out duration-300"
       enter-from-class="-translate-y-full opacity-0"
@@ -349,42 +320,38 @@ onUnmounted(() => {
     >
       <div
         v-if="newOrderNotification"
-        class="fixed top-3 left-1/2 -translate-x-1/2 z-50 bg-amber-500 text-slate-950 px-6 py-2.5 rounded-full font-black text-sm shadow-2xl flex items-center gap-2 border-2 border-white/50 animate-bounce"
+        class="fixed top-3 left-1/2 -translate-x-1/2 z-50 bg-amber-500 text-slate-950 px-4 sm:px-6 py-2 sm:py-2.5 rounded-full font-black text-xs sm:text-sm shadow-2xl flex items-center gap-2 border-2 border-white/50 animate-bounce max-w-[90vw] truncate"
       >
-        <BellRing class="w-4 h-4 fill-slate-950 animate-pulse" />
-        <span>{{ newOrderNotification }}</span>
+        <BellRing class="w-4 h-4 shrink-0 fill-slate-950 animate-pulse" />
+        <span class="truncate">{{ newOrderNotification }}</span>
       </div>
     </transition>
 
-    <!-- HEADER BAR KDS -->
-    <header class="bg-slate-900/90 backdrop-blur border-b border-slate-800 sticky top-0 z-40 px-5 py-3.5">
-      <div class="max-w-[1920px] mx-auto flex flex-wrap items-center justify-between gap-4">
-        <!-- Logo & Nama Resto -->
-        <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-600 to-amber-400 flex items-center justify-center shadow-lg shadow-amber-500/20">
-            <ChefHat class="w-6 h-6 text-slate-950" />
+    <header class="bg-slate-900/90 backdrop-blur border-b border-slate-800 sticky top-0 z-40 px-3 sm:px-5 py-2.5 sm:py-3.5">
+      <div class="max-w-[1920px] mx-auto flex flex-wrap items-center justify-between gap-2.5 sm:gap-4">
+        <div class="flex items-center gap-2 sm:gap-3">
+          <div class="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-amber-600 to-amber-400 flex items-center justify-center shadow-lg shadow-amber-500/20 shrink-0">
+            <ChefHat class="w-5 h-5 sm:w-6 sm:h-6 text-slate-950" />
           </div>
           <div>
-            <div class="flex items-center gap-2">
-              <h1 class="text-xl font-extrabold tracking-tight text-white leading-none">
+            <div class="flex items-center gap-1.5 sm:gap-2">
+              <h1 class="text-base sm:text-xl font-extrabold tracking-tight text-white leading-none">
                 SEAFOOD RESTO
               </h1>
-              <span class="px-2 py-0.5 rounded-md text-[11px] font-black uppercase tracking-wider bg-amber-500/20 border border-amber-500/40 text-amber-400">
+              <span class="px-1.5 sm:px-2 py-0.5 rounded-md text-[10px] sm:text-[11px] font-black uppercase tracking-wider bg-amber-500/20 border border-amber-500/40 text-amber-400">
                 KDS DAPUR
               </span>
             </div>
-            <p class="text-xs text-slate-400 mt-0.5 font-medium">
+            <p class="hidden sm:block text-xs text-slate-400 mt-0.5 font-medium">
               Kitchen Display System • Mode Layar Sentuh
             </p>
           </div>
         </div>
 
-        <!-- Indikator Koneksi Realtime & Jam Digital -->
-        <div class="flex items-center gap-4">
-          <!-- Status Realtime -->
+        <div class="flex items-center gap-2 sm:gap-4">
           <div
             :class="[
-              'flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold border transition-colors',
+              'flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-xs font-bold border transition-colors',
               realtimeConnected
                 ? 'bg-emerald-950/40 text-emerald-400 border-emerald-500/40'
                 : 'bg-amber-950/30 text-amber-400 border-amber-500/30',
@@ -393,50 +360,47 @@ onUnmounted(() => {
           >
             <span
               :class="[
-                'w-2 h-2 rounded-full',
+                'w-2 h-2 rounded-full shrink-0',
                 realtimeConnected ? 'bg-emerald-500 animate-ping' : 'bg-amber-500',
               ]"
             ></span>
-            <Wifi v-if="realtimeConnected" class="w-3.5 h-3.5" />
-            <WifiOff v-else class="w-3.5 h-3.5" />
-            <span>{{ realtimeConnected ? 'Realtime Aktif' : 'Polling Auto' }}</span>
+            <Wifi v-if="realtimeConnected" class="w-3.5 h-3.5 shrink-0" />
+            <WifiOff v-else class="w-3.5 h-3.5 shrink-0" />
+            <span class="hidden sm:inline">{{ realtimeConnected ? 'Realtime' : 'Polling' }}</span>
           </div>
 
-          <!-- Jam Digital -->
-          <div class="bg-slate-950 border border-slate-800 px-4 py-1.5 rounded-xl flex items-center gap-2 shadow-inner">
-            <Clock class="w-4 h-4 text-amber-400" />
-            <span class="font-mono font-bold text-lg text-slate-100 tracking-wider">
+          <div class="bg-slate-950 border border-slate-800 px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-lg sm:rounded-xl flex items-center gap-1.5 sm:gap-2 shadow-inner">
+            <Clock class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 shrink-0" />
+            <span class="font-mono font-bold text-xs sm:text-base text-slate-100 tracking-wider">
               {{ digitalClock }}
             </span>
           </div>
 
-          <!-- Tombol Audio Mute/Unmute & Test Sound -->
-          <div class="flex items-center gap-1.5 bg-slate-950 border border-slate-800 p-1 rounded-xl">
+          <div class="flex items-center gap-1 bg-slate-950 border border-slate-800 p-0.5 sm:p-1 rounded-lg sm:rounded-xl">
             <button
               @click="toggleSound"
               :class="[
-                'p-2 rounded-lg transition-colors',
+                'p-1.5 sm:p-2 rounded-lg transition-colors touch-manipulation',
                 isSoundMuted ? 'text-rose-400 hover:bg-slate-800' : 'text-slate-300 hover:text-white hover:bg-slate-800',
               ]"
-              :title="isSoundMuted ? 'Suara Dinonaktifkan (Klik untuk Unmute)' : 'Suara Aktif'"
+              :title="isSoundMuted ? 'Suara Dinonaktifkan' : 'Suara Aktif'"
             >
               <VolumeX v-if="isSoundMuted" class="w-4 h-4" />
               <Volume2 v-else class="w-4 h-4" />
             </button>
             <button
               @click="testSound"
-              class="px-2.5 py-1 text-xs font-bold text-amber-400 hover:bg-slate-800 rounded-lg transition-colors"
+              class="hidden sm:inline-block px-2.5 py-1 text-xs font-bold text-amber-400 hover:bg-slate-800 rounded-lg transition-colors touch-manipulation"
               title="Tes Bunyi Notifikasi"
             >
               Tes Suara
             </button>
           </div>
 
-          <!-- Tombol Manual Refresh -->
           <button
             @click="fetchOrders(true)"
             :disabled="isRefreshing"
-            class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition-all active:scale-95 disabled:opacity-50"
+            class="p-2 sm:p-2.5 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition-all active:scale-95 disabled:opacity-50 touch-manipulation"
             title="Refresh Pesanan"
           >
             <RefreshCw
@@ -444,27 +408,24 @@ onUnmounted(() => {
             />
           </button>
 
-          <!-- Tombol Fullscreen Layar KDS (Permintaan 5) -->
           <button
             @click="toggleFullscreen"
-            class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition-all active:scale-95 flex items-center gap-1.5"
+            class="p-2 sm:p-2.5 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition-all active:scale-95 flex items-center gap-1.5 touch-manipulation"
             :title="isFullscreen ? 'Keluar Fullscreen (Esc)' : 'Mode Layar Penuh (Fullscreen)'"
           >
             <Minimize v-if="isFullscreen" class="w-4 h-4 text-amber-400" />
             <Maximize v-else class="w-4 h-4 text-slate-300" />
-            <span class="text-xs font-bold hidden md:inline">{{ isFullscreen ? 'Keluar' : 'Layar Penuh' }}</span>
+            <span class="text-xs font-bold hidden lg:inline">{{ isFullscreen ? 'Keluar' : 'Layar Penuh' }}</span>
           </button>
         </div>
       </div>
 
-      <!-- FILTER TABS & SEARCH BAR -->
-      <div class="max-w-[1920px] mx-auto mt-4 pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
-        <!-- Tabs -->
-        <div class="flex items-center gap-1.5 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
+      <div class="max-w-[1920px] mx-auto mt-3 sm:mt-4 pt-2.5 sm:pt-3 border-t border-slate-800/80 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3">
+        <div class="flex items-center gap-1 sm:gap-1.5 bg-slate-950/80 p-1 rounded-xl border border-slate-800 overflow-x-auto no-scrollbar shrink-0">
           <button
             @click="activeTab = 'active'"
             :class="[
-              'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2',
+              'px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 sm:gap-2 whitespace-nowrap shrink-0 touch-manipulation',
               activeTab === 'active'
                 ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900',
@@ -473,7 +434,7 @@ onUnmounted(() => {
             <span>Semua Aktif</span>
             <span
               :class="[
-                'px-1.5 py-0.2 rounded-full text-[11px]',
+                'px-1.5 py-0.2 rounded-full text-[10px] sm:text-[11px]',
                 activeTab === 'active' ? 'bg-slate-950 text-amber-400 font-black' : 'bg-slate-800 text-slate-300',
               ]"
             >
@@ -484,15 +445,15 @@ onUnmounted(() => {
           <button
             @click="activeTab = 'cooking'"
             :class="[
-              'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2',
+              'px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 sm:gap-2 whitespace-nowrap shrink-0 touch-manipulation',
               activeTab === 'cooking'
                 ? 'bg-sky-500 text-white shadow-md shadow-sky-500/20'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900',
             ]"
           >
             <Flame class="w-3.5 h-3.5" />
-            <span>Sedang Dimasak</span>
-            <span class="px-1.5 py-0.2 rounded-full text-[11px] bg-slate-800 text-slate-300">
+            <span>Dimasak</span>
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] sm:text-[11px] bg-slate-800 text-slate-300">
               {{ stats.cookingCount }}
             </span>
           </button>
@@ -500,7 +461,7 @@ onUnmounted(() => {
           <button
             @click="activeTab = 'ready'"
             :class="[
-              'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2',
+              'px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 sm:gap-2 whitespace-nowrap shrink-0 touch-manipulation',
               activeTab === 'ready'
                 ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900',
@@ -508,7 +469,7 @@ onUnmounted(() => {
           >
             <CheckCircle class="w-3.5 h-3.5" />
             <span>Siap Diantar</span>
-            <span class="px-1.5 py-0.2 rounded-full text-[11px] bg-slate-800 text-slate-300">
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] sm:text-[11px] bg-slate-800 text-slate-300">
               {{ stats.readyCount }}
             </span>
           </button>
@@ -516,7 +477,7 @@ onUnmounted(() => {
           <button
             @click="activeTab = 'history'; fetchCompletedOrders()"
             :class="[
-              'px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2',
+              'px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 sm:gap-2 whitespace-nowrap shrink-0 touch-manipulation',
               activeTab === 'history'
                 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900',
@@ -527,51 +488,47 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <!-- Search Bar -->
-        <div class="relative min-w-[260px]">
-          <Search class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        <div class="relative w-full sm:w-auto sm:min-w-[220px] md:min-w-[260px]">
+          <Search class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             v-model="searchQuery"
             type="text"
             placeholder="Cari Meja, Tamu, Menu..."
-            class="w-full bg-slate-950 border border-slate-800 text-slate-200 pl-9 pr-4 py-1.5 rounded-xl text-xs focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 placeholder-slate-500 transition-colors"
+            class="w-full bg-slate-950 border border-slate-800 text-slate-200 pl-8 sm:pl-9 pr-3 sm:pr-4 py-1.5 rounded-xl text-xs focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 placeholder-slate-500 transition-colors"
           />
         </div>
       </div>
     </header>
 
-    <!-- KONTEN UTAMA: GRID ORDER CARDS -->
-    <main class="flex-1 p-5 max-w-[1920px] mx-auto w-full">
-      <!-- Loading State -->
-      <div v-if="isLoading" class="flex flex-col items-center justify-center py-28 text-slate-400">
-        <RefreshCw class="w-10 h-10 animate-spin text-amber-500 mb-4" />
-        <p class="font-bold text-slate-300">Memuat Antrean Dapur...</p>
-        <p class="text-xs text-slate-500 mt-1">Menghubungkan ke API NestJS & Database Supabase</p>
+    <main class="flex-1 p-3 sm:p-4 lg:p-6 max-w-[1920px] mx-auto w-full">
+      <div v-if="isLoading" class="flex flex-col items-center justify-center py-24 sm:py-28 text-slate-400">
+        <RefreshCw class="w-9 h-9 sm:w-10 sm:h-10 animate-spin text-amber-500 mb-4" />
+        <p class="font-bold text-sm sm:text-base text-slate-300">Memuat Antrean Dapur...</p>
+        <p class="text-xs text-slate-500 mt-1">Sinkronisasi pesanan aktif</p>
       </div>
 
-      <!-- Tab Riwayat Selesai -->
       <div v-else-if="activeTab === 'history'" class="space-y-4">
         <div class="flex items-center justify-between">
-          <h2 class="text-base font-bold text-slate-200 flex items-center gap-2">
+          <h2 class="text-sm sm:text-base font-bold text-slate-200 flex items-center gap-2">
             <History class="w-4 h-4 text-indigo-400" />
-            Riwayat Pesanan yang Sudah Disajikan / Selesai
+            Riwayat Pesanan yang Sudah Disajikan
           </h2>
-          <span class="text-xs text-slate-400">Total: {{ completedOrders.length }} Pesanan</span>
+          <span class="text-xs text-slate-400">Total: {{ completedOrders.length }}</span>
         </div>
 
-        <div v-if="completedOrders.length === 0" class="text-center py-20 text-slate-500">
+        <div v-if="completedOrders.length === 0" class="text-center py-16 sm:py-20 text-slate-500 text-xs sm:text-sm">
           Belum ada riwayat pesanan yang disajikan hari ini.
         </div>
 
-        <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
           <div
             v-for="order in completedOrders"
             :key="order.id"
-            class="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 space-y-3 opacity-85 hover:opacity-100 transition-opacity"
+            class="bg-slate-900/70 border border-slate-800 rounded-2xl p-3 sm:p-4 space-y-3 opacity-85 hover:opacity-100 transition-opacity"
           >
             <div class="flex items-start justify-between border-b border-slate-800 pb-2.5">
               <div>
-                <span class="font-black text-slate-100 text-base block">{{ order.customer_name }}</span>
+                <span class="font-black text-slate-100 text-sm sm:text-base block">{{ order.customer_name }}</span>
                 <div class="flex items-center gap-2 mt-1">
                   <span
                     :class="[
@@ -599,14 +556,14 @@ onUnmounted(() => {
 
               <button
                 @click="handleUnserveOrder(order.id)"
-                class="text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-                title="Kembalikan pesanan ke antrean aktif dapur jika salah sajikan"
+                class="text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors touch-manipulation"
+                title="Kembalikan pesanan ke antrean aktif dapur"
               >
                 Kembalikan
               </button>
             </div>
 
-            <div class="space-y-1.5 max-h-[220px] overflow-y-auto">
+            <div class="space-y-1.5 max-h-[220px] overflow-y-auto no-scrollbar">
               <div
                 v-for="item in order.order_items"
                 :key="item.id"
@@ -630,26 +587,23 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Tab Pesanan Aktif -->
       <div v-else>
-        <!-- Kosong -->
         <div
           v-if="filteredOrders.length === 0"
-          class="flex flex-col items-center justify-center py-28 text-slate-500"
+          class="flex flex-col items-center justify-center py-20 sm:py-28 text-slate-500"
         >
-          <div class="w-16 h-16 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mb-4">
-            <UtensilsCrossed class="w-8 h-8 text-slate-600" />
+          <div class="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mb-4">
+            <UtensilsCrossed class="w-7 h-7 sm:w-8 sm:h-8 text-slate-600" />
           </div>
-          <p class="font-bold text-lg text-slate-300">Tidak ada antrean pesanan masakan</p>
-          <p class="text-xs text-slate-500 mt-1 max-w-sm text-center">
+          <p class="font-bold text-base sm:text-lg text-slate-300">Tidak ada antrean pesanan masakan</p>
+          <p class="text-xs text-slate-500 mt-1 max-w-sm text-center px-4">
             Semua pesanan telah disajikan atau belum ada pesanan baru dari kasir POS.
           </p>
         </div>
 
-        <!-- Grid Responsif Kartu Pesanan: Maksimal 4 Kolom (Permintaan 4) -->
         <div
           v-else
-          class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+          class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 lg:gap-5"
         >
           <OrderCard
             v-for="order in filteredOrders"
@@ -665,4 +619,3 @@ onUnmounted(() => {
     </main>
   </div>
 </template>
-
